@@ -1,12 +1,15 @@
-
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema(
   {
+    // =========================================================
+    // BASIC USER INFORMATION
+    // =========================================================
+
     name: {
       type: String,
-      required: [true, 'Name is required'],
+      required: [true, "Name is required"],
       trim: true,
       minlength: 2,
       maxlength: 60,
@@ -14,34 +17,50 @@ const userSchema = new mongoose.Schema(
 
     email: {
       type: String,
-      required: [true, 'Email is required'],
+      required: [true, "Email is required"],
       unique: true,
       lowercase: true,
       trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
+      match: [/^\S+@\S+\.\S+$/, "Please provide a valid email"],
     },
+
+    // =========================================================
+    // AUTHENTICATION
+    // =========================================================
 
     password: {
       type: String,
-      required: [true, 'Password is required'],
       minlength: 6,
+      select: false,
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+    },
+
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
       select: false,
     },
 
     role: {
       type: String,
-      enum: ['customer', 'seller', 'admin'],
-      default: 'customer',
+      enum: ["customer", "seller", "admin"],
+      default: "customer",
     },
 
     address: {
       type: String,
-      default: '',
+      default: "",
     },
 
     phone: {
       type: String,
-      default: '',
+      default: "",
     },
 
     // =========================================================
@@ -115,15 +134,41 @@ const userSchema = new mongoose.Schema(
 );
 
 // =========================================================
+// VALIDATE AUTH PROVIDER
+// =========================================================
+
+userSchema.pre("validate", function validateAuthProvider(next) {
+  // Local accounts MUST have a password.
+  if (
+    this.authProvider === "local" &&
+    (!this.password || this.password.trim() === "")
+  ) {
+    this.invalidate("password", "Password is required");
+  }
+
+  // Google accounts MUST have a Google ID.
+  if (
+    this.authProvider === "google" &&
+    (!this.googleId || this.googleId.trim() === "")
+  ) {
+    this.invalidate("googleId", "Google ID is required for Google accounts");
+  }
+
+  next();
+});
+
+// =========================================================
 // HASH PASSWORD BEFORE SAVE
 // =========================================================
 
-userSchema.pre('save', async function hashPassword(next) {
-  if (!this.isModified('password')) {
+userSchema.pre("save", async function hashPassword(next) {
+  // Google accounts don't have a password.
+  if (!this.isModified("password") || !this.password) {
     return next();
   }
 
   const salt = await bcrypt.genSalt(10);
+
   this.password = await bcrypt.hash(this.password, salt);
 
   next();
@@ -133,11 +178,13 @@ userSchema.pre('save', async function hashPassword(next) {
 // COMPARE PASSWORD
 // =========================================================
 
-userSchema.methods.comparePassword = async function comparePassword(
-  candidate,
-) {
+userSchema.methods.comparePassword = async function comparePassword(candidate) {
+  // Google accounts don't have a password.
+  if (!this.password) {
+    return false;
+  }
+
   return bcrypt.compare(candidate, this.password);
 };
 
-module.exports = mongoose.model('User', userSchema);
-
+module.exports = mongoose.model("User", userSchema);

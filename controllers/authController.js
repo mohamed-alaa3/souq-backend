@@ -1,13 +1,14 @@
+const User = require("../models/User");
+const generateToken = require("../utils/generateToken");
+const asyncHandler = require("../utils/asyncHandler");
+const ApiError = require("../utils/ApiError");
 
-const User = require('../models/User');
-const generateToken = require('../utils/generateToken');
-const asyncHandler = require('../utils/asyncHandler');
-const ApiError = require('../utils/ApiError');
+const { OAuth2Client } = require("google-auth-library");
 
 const {
   sendEmailVerificationEmail,
   sendPasswordResetEmail,
-} = require('../utils/emailService');
+} = require("../utils/emailService");
 
 const {
   OTP_EXPIRES_MINUTES,
@@ -20,14 +21,20 @@ const {
   generateResetToken,
   hashResetToken,
   safeCompareHex,
-} = require('../utils/otp');
+} = require("../utils/otp");
+
+// =========================================================
+// GOOGLE CLIENT
+// =========================================================
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // =========================================================
 // STRONG PASSWORD VALIDATION
 // =========================================================
 
 const isStrongPassword = (password) => {
-  if (typeof password !== 'string') {
+  if (typeof password !== "string") {
     return false;
   }
 
@@ -43,7 +50,7 @@ const isStrongPassword = (password) => {
 const strongPasswordError = () =>
   new ApiError(
     400,
-    'Password must be at least 8 characters and include uppercase, lowercase, number and special character',
+    "Password must be at least 8 characters and include uppercase, lowercase, number and special character",
   );
 
 // =========================================================
@@ -54,7 +61,7 @@ const register = asyncHandler(async (req, res) => {
   const { name, email, password, address, phone } = req.body;
 
   if (!name || !email || !password) {
-    throw new ApiError(400, 'Name, email and password are required');
+    throw new ApiError(400, "Name, email and password are required");
   }
 
   if (!isStrongPassword(password)) {
@@ -63,20 +70,19 @@ const register = asyncHandler(async (req, res) => {
 
   const normalizedEmail = String(email).toLowerCase().trim();
 
-  const existing = await User.findOne({ email: normalizedEmail });
+  const existing = await User.findOne({
+    email: normalizedEmail,
+  });
 
   if (existing) {
     if (existing.isEmailVerified === false) {
       throw new ApiError(
         400,
-        'An account with this email already exists. Please verify your email.',
+        "An account with this email already exists. Please verify your email.",
       );
     }
 
-    throw new ApiError(
-      400,
-      'A user with this email already exists',
-    );
+    throw new ApiError(400, "A user with this email already exists");
   }
 
   const otp = generateOtp();
@@ -86,12 +92,11 @@ const register = asyncHandler(async (req, res) => {
     name,
     email: normalizedEmail,
     password,
-    role: 'customer',
+    authProvider: "local",
+    role: "customer",
     address,
     phone,
-
     isEmailVerified: false,
-
     emailVerificationOtpHash: otpHash,
     emailVerificationOtpExpires: new Date(
       Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000,
@@ -108,21 +113,18 @@ const register = asyncHandler(async (req, res) => {
       expiresMinutes: OTP_EXPIRES_MINUTES,
     });
   } catch (err) {
-    console.error(
-      'Failed to send email verification email:',
-      err.message,
-    );
+    console.error("Failed to send email verification email:", err.message);
 
     throw new ApiError(
       503,
-      'Account created, but we could not send the verification email. Please try again.',
+      "Account created, but we could not send the verification email. Please try again.",
     );
   }
 
   res.status(201).json({
     success: true,
     data: {
-      message: 'Verification code sent to your email.',
+      message: "Verification code sent to your email.",
       email: user.email,
       expiresInSeconds: OTP_EXPIRES_MINUTES * 60,
       resendAvailableInSeconds: RESEND_COOLDOWN_SECONDS,
@@ -138,26 +140,20 @@ const verifyEmail = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
 
   if (!email || !otp) {
-    throw new ApiError(
-      400,
-      'Email and verification code are required',
-    );
+    throw new ApiError(400, "Email and verification code are required");
   }
 
   const normalizedEmail = String(email).toLowerCase().trim();
 
   const invalidOtpError = () =>
-    new ApiError(
-      400,
-      'Invalid or expired verification code',
-    );
+    new ApiError(400, "Invalid or expired verification code");
 
   const user = await User.findOne({
     email: normalizedEmail,
   }).select(
-    '+emailVerificationOtpHash ' +
-      '+emailVerificationOtpExpires ' +
-      '+emailVerificationAttempts',
+    "+emailVerificationOtpHash " +
+      "+emailVerificationOtpExpires " +
+      "+emailVerificationAttempts",
   );
 
   if (
@@ -181,14 +177,11 @@ const verifyEmail = asyncHandler(async (req, res) => {
 
     throw new ApiError(
       429,
-      'Too many attempts. Please request a new verification code.',
+      "Too many attempts. Please request a new verification code.",
     );
   }
 
-  const isMatch = await compareOtp(
-    String(otp),
-    user.emailVerificationOtpHash,
-  );
+  const isMatch = await compareOtp(String(otp), user.emailVerificationOtpHash);
 
   if (!isMatch) {
     user.emailVerificationAttempts += 1;
@@ -216,7 +209,7 @@ const verifyEmail = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: {
-      message: 'Email verified successfully.',
+      message: "Email verified successfully.",
       user: {
         id: user._id,
         name: user.name,
@@ -235,11 +228,8 @@ const verifyEmail = asyncHandler(async (req, res) => {
 const resendVerification = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
-  if (!email || typeof email !== 'string') {
-    throw new ApiError(
-      400,
-      'Please provide a valid email address',
-    );
+  if (!email || typeof email !== "string") {
+    throw new ApiError(400, "Please provide a valid email address");
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -247,9 +237,9 @@ const resendVerification = asyncHandler(async (req, res) => {
   const user = await User.findOne({
     email: normalizedEmail,
   }).select(
-    '+emailVerificationOtpHash ' +
-      '+emailVerificationOtpExpires ' +
-      '+emailVerificationLastSentAt',
+    "+emailVerificationOtpHash " +
+      "+emailVerificationOtpExpires " +
+      "+emailVerificationLastSentAt",
   );
 
   // Generic response for unknown/verified accounts.
@@ -258,7 +248,7 @@ const resendVerification = asyncHandler(async (req, res) => {
       success: true,
       data: {
         message:
-          'If an unverified account exists for that email, a verification code has been sent.',
+          "If an unverified account exists for that email, a verification code has been sent.",
         expiresInSeconds: OTP_EXPIRES_MINUTES * 60,
         resendAvailableInSeconds: RESEND_COOLDOWN_SECONDS,
       },
@@ -266,17 +256,12 @@ const resendVerification = asyncHandler(async (req, res) => {
   }
 
   if (user.emailVerificationLastSentAt) {
-    const elapsed =
-      Date.now() -
-      user.emailVerificationLastSentAt.getTime();
+    const elapsed = Date.now() - user.emailVerificationLastSentAt.getTime();
 
-    const cooldownMs =
-      RESEND_COOLDOWN_SECONDS * 1000;
+    const cooldownMs = RESEND_COOLDOWN_SECONDS * 1000;
 
     if (elapsed < cooldownMs) {
-      const remainingSeconds = Math.ceil(
-        (cooldownMs - elapsed) / 1000,
-      );
+      const remainingSeconds = Math.ceil((cooldownMs - elapsed) / 1000);
 
       throw new ApiError(
         429,
@@ -289,9 +274,11 @@ const resendVerification = asyncHandler(async (req, res) => {
   const otpHash = await hashOtp(otp);
 
   user.emailVerificationOtpHash = otpHash;
+
   user.emailVerificationOtpExpires = new Date(
     Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000,
   );
+
   user.emailVerificationAttempts = 0;
   user.emailVerificationLastSentAt = new Date();
 
@@ -307,21 +294,18 @@ const resendVerification = asyncHandler(async (req, res) => {
       expiresMinutes: OTP_EXPIRES_MINUTES,
     });
   } catch (err) {
-    console.error(
-      'Failed to resend verification email:',
-      err.message,
-    );
+    console.error("Failed to resend verification email:", err.message);
 
     throw new ApiError(
       503,
-      'We could not send the verification email. Please try again later.',
+      "We could not send the verification email. Please try again later.",
     );
   }
 
   res.status(200).json({
     success: true,
     data: {
-      message: 'A new verification code has been sent.',
+      message: "A new verification code has been sent.",
       expiresInSeconds: OTP_EXPIRES_MINUTES * 60,
       resendAvailableInSeconds: RESEND_COOLDOWN_SECONDS,
     },
@@ -336,44 +320,150 @@ const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    throw new ApiError(
-      400,
-      'Email and password are required',
-    );
+    throw new ApiError(400, "Email and password are required");
   }
 
-  const normalizedEmail = String(email)
-    .toLowerCase()
-    .trim();
+  const normalizedEmail = String(email).toLowerCase().trim();
 
   const user = await User.findOne({
     email: normalizedEmail,
-  }).select('+password');
+  }).select("+password");
 
   if (!user) {
-    throw new ApiError(
-      401,
-      'Invalid email or password',
-    );
+    throw new ApiError(401, "Invalid email or password");
   }
 
   const isMatch = await user.comparePassword(password);
 
   if (!isMatch) {
-    throw new ApiError(
-      401,
-      'Invalid email or password',
-    );
+    throw new ApiError(401, "Invalid email or password");
   }
 
   // New accounts explicitly have false.
   // Legacy accounts without this field remain usable.
   if (user.isEmailVerified === false) {
-    throw new ApiError(
-      403,
-      'Please verify your email before logging in.',
-    );
+    throw new ApiError(403, "Please verify your email before logging in.");
   }
+
+  const token = generateToken(user._id);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      token,
+    },
+  });
+});
+
+// =========================================================
+// GOOGLE LOGIN
+// =========================================================
+
+const googleLogin = asyncHandler(async (req, res) => {
+  const { credential } = req.body;
+
+  if (!credential || typeof credential !== "string") {
+    throw new ApiError(400, "Google credential is required");
+  }
+
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    console.error("GOOGLE_CLIENT_ID is not configured");
+
+    throw new ApiError(500, "Google authentication is not configured");
+  }
+
+  let ticket;
+
+  try {
+    ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+  } catch (err) {
+    console.error("Google token verification failed:", err.message);
+
+    throw new ApiError(401, "Invalid Google credential");
+  }
+
+  const payload = ticket.getPayload();
+
+  if (!payload) {
+    throw new ApiError(401, "Invalid Google account information");
+  }
+
+  const { sub: googleId, email, email_verified: emailVerified, name } = payload;
+
+  if (!googleId || !email || emailVerified !== true) {
+    throw new ApiError(401, "Google account email could not be verified");
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  // =======================================================
+  // FIND EXISTING USER
+  // =======================================================
+
+  // IMPORTANT:
+  // password is normally select:false in User model.
+  // We explicitly select it because an existing local
+  // account may need to be saved after Google is linked.
+  let user = await User.findOne({
+    $or: [{ googleId }, { email: normalizedEmail }],
+  }).select("+password +googleId");
+
+  // =======================================================
+  // EXISTING USER
+  // =======================================================
+
+  if (user) {
+    // If this is an existing local account,
+    // link the Google account to the same user.
+    if (!user.googleId) {
+      user.googleId = googleId;
+    }
+
+    // Google has already verified the email.
+    user.isEmailVerified = true;
+
+    // IMPORTANT:
+    // Keep the existing authentication provider.
+    // An existing local account remains local,
+    // even after Google is linked.
+    if (!user.authProvider) {
+      user.authProvider = "google";
+    }
+
+    // Keep the existing name if one already exists.
+    if (!user.name && name) {
+      user.name = name;
+    }
+
+    await user.save();
+  }
+
+  // =======================================================
+  // NEW GOOGLE USER
+  // =======================================================
+  else {
+    user = await User.create({
+      name: name || "Google User",
+      email: normalizedEmail,
+      authProvider: "google",
+      googleId,
+      role: "customer",
+      isEmailVerified: true,
+    });
+  }
+
+  // =======================================================
+  // GENERATE SOUQ JWT
+  // =======================================================
 
   const token = generateToken(user._id);
 
@@ -412,7 +502,7 @@ const updateMe = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
 
   if (!user) {
-    throw new ApiError(404, 'User not found');
+    throw new ApiError(404, "User not found");
   }
 
   if (name !== undefined) {
@@ -442,11 +532,8 @@ const updateMe = asyncHandler(async (req, res) => {
 const forgotPassword = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
-  if (!email || typeof email !== 'string') {
-    throw new ApiError(
-      400,
-      'Please provide a valid email address',
-    );
+  if (!email || typeof email !== "string") {
+    throw new ApiError(400, "Please provide a valid email address");
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -456,20 +543,17 @@ const forgotPassword = asyncHandler(async (req, res) => {
 
   const user = await User.findOne({
     email: normalizedEmail,
-  }).select(
-    '+passwordResetLastSentAt',
-  );
+  }).select("+passwordResetLastSentAt");
 
-  // Do not allow password reset for explicitly unverified
-  // newly-created accounts.
+  // Do not allow password reset for explicitly
+  // unverified newly-created accounts.
   if (user && user.isEmailVerified === false) {
     return res.status(200).json({
       success: true,
       data: {
         message: genericMessage,
         expiresInSeconds: OTP_EXPIRES_MINUTES * 60,
-        resendAvailableInSeconds:
-          RESEND_COOLDOWN_SECONDS,
+        resendAvailableInSeconds: RESEND_COOLDOWN_SECONDS,
       },
     });
   }
@@ -477,8 +561,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   if (user) {
     const cooldownActive =
       user.passwordResetLastSentAt &&
-      Date.now() -
-        user.passwordResetLastSentAt.getTime() <
+      Date.now() - user.passwordResetLastSentAt.getTime() <
         RESEND_COOLDOWN_SECONDS * 1000;
 
     if (!cooldownActive) {
@@ -486,14 +569,16 @@ const forgotPassword = asyncHandler(async (req, res) => {
       const otpHash = await hashOtp(otp);
 
       user.passwordResetOtpHash = otpHash;
+
       user.passwordResetOtpExpires = new Date(
-        Date.now() +
-          OTP_EXPIRES_MINUTES * 60 * 1000,
+        Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000,
       );
+
       user.passwordResetAttempts = 0;
       user.passwordResetLastSentAt = new Date();
 
       user.passwordResetTokenHash = undefined;
+
       user.passwordResetTokenExpires = undefined;
 
       await user.save({
@@ -508,12 +593,9 @@ const forgotPassword = asyncHandler(async (req, res) => {
           expiresMinutes: OTP_EXPIRES_MINUTES,
         });
       } catch (err) {
-        console.error(
-          'Failed to send password reset email:',
-          err.message,
-        );
+        console.error("Failed to send password reset email:", err.message);
 
-        if (process.env.NODE_ENV !== 'production') {
+        if (process.env.NODE_ENV !== "production") {
           console.log(
             `[DEV ONLY] Password reset OTP for ${user.email}: ${otp}`,
           );
@@ -526,10 +608,8 @@ const forgotPassword = asyncHandler(async (req, res) => {
     success: true,
     data: {
       message: genericMessage,
-      expiresInSeconds:
-        OTP_EXPIRES_MINUTES * 60,
-      resendAvailableInSeconds:
-        RESEND_COOLDOWN_SECONDS,
+      expiresInSeconds: OTP_EXPIRES_MINUTES * 60,
+      resendAvailableInSeconds: RESEND_COOLDOWN_SECONDS,
     },
   });
 });
@@ -542,44 +622,32 @@ const verifyResetOtp = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
 
   if (!email || !otp) {
-    throw new ApiError(
-      400,
-      'Email and verification code are required',
-    );
+    throw new ApiError(400, "Email and verification code are required");
   }
 
-  const normalizedEmail = String(email)
-    .toLowerCase()
-    .trim();
+  const normalizedEmail = String(email).toLowerCase().trim();
 
   const invalidOtpError = () =>
-    new ApiError(
-      400,
-      'Invalid or expired verification code',
-    );
+    new ApiError(400, "Invalid or expired verification code");
 
   const user = await User.findOne({
     email: normalizedEmail,
   }).select(
-    '+passwordResetOtpHash ' +
-      '+passwordResetOtpExpires ' +
-      '+passwordResetAttempts',
+    "+passwordResetOtpHash " +
+      "+passwordResetOtpExpires " +
+      "+passwordResetAttempts",
   );
 
   if (
     !user ||
     !user.passwordResetOtpHash ||
     !user.passwordResetOtpExpires ||
-    user.passwordResetOtpExpires.getTime() <
-      Date.now()
+    user.passwordResetOtpExpires.getTime() < Date.now()
   ) {
     throw invalidOtpError();
   }
 
-  if (
-    user.passwordResetAttempts >=
-    OTP_MAX_ATTEMPTS
-  ) {
+  if (user.passwordResetAttempts >= OTP_MAX_ATTEMPTS) {
     user.passwordResetOtpHash = undefined;
     user.passwordResetOtpExpires = undefined;
     user.passwordResetAttempts = 0;
@@ -588,16 +656,10 @@ const verifyResetOtp = asyncHandler(async (req, res) => {
       validateBeforeSave: false,
     });
 
-    throw new ApiError(
-      429,
-      'Too many attempts. Please request a new code.',
-    );
+    throw new ApiError(429, "Too many attempts. Please request a new code.");
   }
 
-  const isMatch = await compareOtp(
-    String(otp),
-    user.passwordResetOtpHash,
-  );
+  const isMatch = await compareOtp(String(otp), user.passwordResetOtpHash);
 
   if (!isMatch) {
     user.passwordResetAttempts += 1;
@@ -611,12 +673,10 @@ const verifyResetOtp = asyncHandler(async (req, res) => {
 
   const resetToken = generateResetToken();
 
-  user.passwordResetTokenHash =
-    hashResetToken(resetToken);
+  user.passwordResetTokenHash = hashResetToken(resetToken);
 
   user.passwordResetTokenExpires = new Date(
-    Date.now() +
-      RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000,
+    Date.now() + RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000,
   );
 
   user.passwordResetOtpHash = undefined;
@@ -630,10 +690,9 @@ const verifyResetOtp = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: {
-      message: 'Verification code confirmed',
+      message: "Verification code confirmed",
       resetToken,
-      expiresInSeconds:
-        RESET_TOKEN_EXPIRES_MINUTES * 60,
+      expiresInSeconds: RESET_TOKEN_EXPIRES_MINUTES * 60,
     },
   });
 });
@@ -643,83 +702,60 @@ const verifyResetOtp = asyncHandler(async (req, res) => {
 // =========================================================
 
 const resetPassword = asyncHandler(async (req, res) => {
-  const {
-    email,
-    resetToken,
-    newPassword,
-    confirmPassword,
-  } = req.body;
+  const { email, resetToken, newPassword, confirmPassword } = req.body;
 
-  if (
-    !email ||
-    !resetToken ||
-    !newPassword ||
-    !confirmPassword
-  ) {
-    throw new ApiError(
-      400,
-      'All fields are required',
-    );
+  if (!email || !resetToken || !newPassword || !confirmPassword) {
+    throw new ApiError(400, "All fields are required");
   }
 
   if (newPassword !== confirmPassword) {
-    throw new ApiError(
-      400,
-      'Passwords do not match',
-    );
+    throw new ApiError(400, "Passwords do not match");
   }
 
   if (!isStrongPassword(newPassword)) {
     throw strongPasswordError();
   }
 
-  const normalizedEmail = String(email)
-    .toLowerCase()
-    .trim();
+  const normalizedEmail = String(email).toLowerCase().trim();
 
   const sessionExpiredError = () =>
-    new ApiError(
-      400,
-      'Your reset session has expired. Please start again.',
-    );
+    new ApiError(400, "Your reset session has expired. Please start again.");
 
   const user = await User.findOne({
     email: normalizedEmail,
-  }).select(
-    '+passwordResetTokenHash ' +
-      '+passwordResetTokenExpires',
-  );
+  }).select("+passwordResetTokenHash " + "+passwordResetTokenExpires");
 
   if (
     !user ||
     !user.passwordResetTokenHash ||
     !user.passwordResetTokenExpires ||
-    user.passwordResetTokenExpires.getTime() <
-      Date.now()
+    user.passwordResetTokenExpires.getTime() < Date.now()
   ) {
     throw sessionExpiredError();
   }
 
-  const providedTokenHash = hashResetToken(
-    String(resetToken),
-  );
+  const providedTokenHash = hashResetToken(String(resetToken));
 
-  if (
-    !safeCompareHex(
-      providedTokenHash,
-      user.passwordResetTokenHash,
-    )
-  ) {
+  if (!safeCompareHex(providedTokenHash, user.passwordResetTokenHash)) {
     throw sessionExpiredError();
   }
 
   user.password = newPassword;
 
+  // If a Google account resets/sets a password,
+  // it becomes capable of local password login too.
+  if (user.authProvider === "google") {
+    user.authProvider = "local";
+  }
+
   user.passwordResetTokenHash = undefined;
+
   user.passwordResetTokenExpires = undefined;
 
   user.passwordResetOtpHash = undefined;
+
   user.passwordResetOtpExpires = undefined;
+
   user.passwordResetAttempts = 0;
   user.passwordResetLastSentAt = undefined;
 
@@ -728,8 +764,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: {
-      message:
-        'Your password has been reset successfully',
+      message: "Your password has been reset successfully",
     },
   });
 });
@@ -743,10 +778,10 @@ module.exports = {
   verifyEmail,
   resendVerification,
   login,
+  googleLogin,
   getMe,
   updateMe,
   forgotPassword,
   verifyResetOtp,
   resetPassword,
 };
-

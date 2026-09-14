@@ -6,6 +6,7 @@ const {
   verifyEmail,
   resendVerification,
   login,
+  googleLogin,
   getMe,
   updateMe,
   forgotPassword,
@@ -29,6 +30,8 @@ router.post('/resend-verification', resendVerification);
 
 router.post('/login', login);
 
+router.post('/google', googleLogin);
+
 // =========================================================
 // CURRENT USER
 // =========================================================
@@ -48,4 +51,3 @@ router.post('/verify-reset-otp', verifyResetOtp);
 router.post('/reset-password', resetPassword);
 
 module.exports = router;
-
