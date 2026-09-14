@@ -1,9 +1,13 @@
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const User = require("../models/User");
 const { getOrCreateCart } = require("./cartController");
 const { calculateCouponForOrder } = require("./couponController");
-const { createNotification, createNotifications } = require("../utils/notificationService");
+const {
+  createNotification,
+  createNotifications,
+} = require("../utils/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
 
@@ -197,6 +201,7 @@ const createOrder = asyncHandler(async (req, res) => {
   // Notifications are best-effort: a failure here must never undo or fail
   // an order that was already successfully placed and paid for.
   try {
+    // Notify the customer.
     await createNotification({
       user: req.user._id,
       type: "order_created",
@@ -205,6 +210,7 @@ const createOrder = asyncHandler(async (req, res) => {
       relatedOrder: order._id,
     });
 
+    // Notify all sellers whose products are included in the order.
     const uniqueSellerIds = [...new Set(itemSellerIds)];
 
     await createNotifications(
@@ -216,8 +222,21 @@ const createOrder = asyncHandler(async (req, res) => {
         relatedOrder: order._id,
       })),
     );
+
+    // Notify all admins about the new order.
+    const admins = await User.find({ role: "admin" }).select("_id").lean();
+
+    await createNotifications(
+      admins.map((admin) => ({
+        user: admin._id,
+        type: "order_created",
+        title: "New order placed",
+        message: "A new customer order has been placed.",
+        relatedOrder: order._id,
+      })),
+    );
   } catch (err) {
-    // Notification delivery failing is not a reason to fail order placement.
+    console.error("Order notification error:", err);
   }
 
   res.status(201).json({
@@ -430,8 +449,7 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
   }
 
   // Notify the customer only when the status actually changed, to avoid
-  // duplicate notifications for a no-op update (e.g. re-saving the same
-  // status, or the already-cancelled short-circuit above).
+  // duplicate notifications for a no-op update.
   const STATUS_NOTIFICATIONS = {
     processing: {
       type: "order_processing",
@@ -478,6 +496,7 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
     data: updatedOrder,
   });
 });
+
 // @desc    Cancel an order
 // @route   PATCH /api/orders/:id/cancel
 // @access  Private
@@ -503,8 +522,7 @@ const cancelOrder = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You are not allowed to cancel this order");
       }
 
-      // Seller can cancel only if all products
-      // belong to them.
+      // Seller can cancel only if all products belong to them.
       if (isSeller) {
         for (const item of order.items) {
           const product = await Product.findById(item.product)
