@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
+const logSecurityEvent = require('../utils/securityLogger');
 
 const protect = async (req, res, next) => {
   try {
@@ -26,6 +27,11 @@ const protect = async (req, res, next) => {
     next();
   } catch (err) {
     if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      logSecurityEvent('UNAUTHORIZED_ACCESS', {
+        reason: err.name,
+        path: req.originalUrl,
+        method: req.method,
+      });
       return next(new ApiError(401, 'Not authorized, invalid or expired token'));
     }
     next(err);

@@ -10,6 +10,7 @@ const {
 } = require("../utils/notificationService");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
+const logSecurityEvent = require("../utils/securityLogger");
 
 // Get the selected variant from a product.
 const getProductVariant = (product, variantId) => {
@@ -201,6 +202,12 @@ const createOrder = asyncHandler(async (req, res) => {
   // Notifications are best-effort: a failure here must never undo or fail
   // an order that was already successfully placed and paid for.
   try {
+    logSecurityEvent("ORDER_CREATED", {
+      orderId: order._id.toString(),
+      userId: req.user._id.toString(),
+      totalPrice: order.totalPrice,
+    });
+
     // Notify the customer.
     await createNotification({
       user: req.user._id,
@@ -474,6 +481,13 @@ const updateOrderStatus = asyncHandler(async (req, res) => {
   };
 
   if (updatedOrder && previousStatus !== updatedOrder.status) {
+    logSecurityEvent("ORDER_STATUS_CHANGED", {
+      orderId: updatedOrder._id.toString(),
+      previousStatus,
+      newStatus: updatedOrder.status,
+      changedBy: req.user._id.toString(),
+    });
+
     const notif = STATUS_NOTIFICATIONS[updatedOrder.status];
 
     if (notif) {

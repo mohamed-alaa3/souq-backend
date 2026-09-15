@@ -23,6 +23,8 @@ const {
   safeCompareHex,
 } = require("../utils/otp");
 
+const logSecurityEvent = require("../utils/securityLogger");
+
 // =========================================================
 // GOOGLE CLIENT
 // =========================================================
@@ -330,12 +332,14 @@ const login = asyncHandler(async (req, res) => {
   }).select("+password");
 
   if (!user) {
+    logSecurityEvent("LOGIN_FAILED", { email: normalizedEmail, reason: "no_such_user" });
     throw new ApiError(401, "Invalid email or password");
   }
 
   const isMatch = await user.comparePassword(password);
 
   if (!isMatch) {
+    logSecurityEvent("LOGIN_FAILED", { email: normalizedEmail, reason: "bad_password" });
     throw new ApiError(401, "Invalid email or password");
   }
 
@@ -346,6 +350,8 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const token = generateToken(user._id);
+
+  logSecurityEvent("LOGIN_SUCCESS", { userId: user._id.toString(), role: user.role });
 
   res.status(200).json({
     success: true,
@@ -541,6 +547,8 @@ const forgotPassword = asyncHandler(async (req, res) => {
   const genericMessage =
     "If an account exists for that email, we've sent a verification code.";
 
+  logSecurityEvent("PASSWORD_RESET_REQUEST", { email: normalizedEmail });
+
   const user = await User.findOne({
     email: normalizedEmail,
   }).select("+passwordResetLastSentAt");
@@ -594,12 +602,6 @@ const forgotPassword = asyncHandler(async (req, res) => {
         });
       } catch (err) {
         console.error("Failed to send password reset email:", err.message);
-
-        if (process.env.NODE_ENV !== "production") {
-          console.log(
-            `[DEV ONLY] Password reset OTP for ${user.email}: ${otp}`,
-          );
-        }
       }
     }
   }
@@ -760,6 +762,8 @@ const resetPassword = asyncHandler(async (req, res) => {
   user.passwordResetLastSentAt = undefined;
 
   await user.save();
+
+  logSecurityEvent("PASSWORD_RESET_SUCCESS", { userId: user._id.toString() });
 
   res.status(200).json({
     success: true,

@@ -205,19 +205,19 @@ describe('Full flow: forgot -> verify -> reset (single user document across all 
     const resetRes = await request(app).post('/api/auth/reset-password').send({
       email: user.email,
       resetToken,
-      newPassword: 'brandNewPass1',
-      confirmPassword: 'brandNewPass1',
+      newPassword: 'brandNewPass1!',
+      confirmPassword: 'brandNewPass1!',
     });
     expect(resetRes.status).toBe(200);
-    expect(user.password).toBe('brandNewPass1');
+    expect(user.password).toBe('brandNewPass1!');
     expect(user.passwordResetTokenHash).toBeUndefined();
 
     // The reset token is single-use - replaying step 3 must now fail.
     const replayRes = await request(app).post('/api/auth/reset-password').send({
       email: user.email,
       resetToken,
-      newPassword: 'anotherPass1',
-      confirmPassword: 'anotherPass1',
+      newPassword: 'anotherPass1!',
+      confirmPassword: 'anotherPass1!',
     });
     expect(replayRes.status).toBe(400);
   });
@@ -236,12 +236,12 @@ describe('POST /api/auth/reset-password', () => {
     const res = await request(buildApp()).post('/api/auth/reset-password').send({
       email: user.email,
       resetToken,
-      newPassword: 'newSecret123',
-      confirmPassword: 'newSecret123',
+      newPassword: 'newSecret123!',
+      confirmPassword: 'newSecret123!',
     });
 
     expect(res.status).toBe(200);
-    expect(user.password).toBe('newSecret123');
+    expect(user.password).toBe('newSecret123!');
     expect(user.passwordResetTokenHash).toBeUndefined();
     expect(user.save).toHaveBeenCalled();
   });
@@ -269,8 +269,8 @@ describe('POST /api/auth/reset-password', () => {
     const res = await request(buildApp()).post('/api/auth/reset-password').send({
       email: user.email,
       resetToken: 'wrong-token'.padEnd(64, '0'),
-      newPassword: 'newSecret123',
-      confirmPassword: 'newSecret123',
+      newPassword: 'newSecret123!',
+      confirmPassword: 'newSecret123!',
     });
 
     expect(res.status).toBe(400);
@@ -288,8 +288,8 @@ describe('POST /api/auth/reset-password', () => {
     const res = await request(buildApp()).post('/api/auth/reset-password').send({
       email: user.email,
       resetToken,
-      newPassword: 'newSecret123',
-      confirmPassword: 'newSecret123',
+      newPassword: 'newSecret123!',
+      confirmPassword: 'newSecret123!',
     });
 
     expect(res.status).toBe(400);

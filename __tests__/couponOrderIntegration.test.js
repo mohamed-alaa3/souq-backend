@@ -8,6 +8,22 @@ jest.mock('../controllers/cartController', () => ({
 jest.mock('../controllers/couponController', () => ({
   calculateCouponForOrder: jest.fn(),
 }));
+// createOrder's post-creation notification step (customer, sellers, and
+// every admin) is best-effort and orthogonal to the coupon/order
+// integration behaviour this file tests - mock it so those unrelated
+// notification/User-lookup calls never fall through to a real,
+// unconnected Mongoose model.
+jest.mock('../utils/notificationService', () => ({
+  createNotification: jest.fn().mockResolvedValue(true),
+  createNotifications: jest.fn().mockResolvedValue([]),
+}));
+jest.mock('../models/User', () => ({
+  find: jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    }),
+  }),
+}));
 jest.mock('mongoose', () => {
   const actual = jest.requireActual('mongoose');
   return {

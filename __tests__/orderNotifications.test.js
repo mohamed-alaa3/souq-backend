@@ -2,6 +2,7 @@ process.env.JWT_SECRET = 'test_secret_key';
 
 jest.mock('../models/Product');
 jest.mock('../models/Order');
+jest.mock('../models/User');
 jest.mock('../controllers/cartController', () => ({
   getOrCreateCart: jest.fn(),
 }));
@@ -20,6 +21,7 @@ jest.mock('mongoose', () => {
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const User = require('../models/User');
 const { getOrCreateCart } = require('../controllers/cartController');
 const {
   createNotification,
@@ -39,6 +41,14 @@ const buildRes = () => {
 beforeEach(() => {
   jest.clearAllMocks();
   mongoose.startSession.mockResolvedValue(fakeSession);
+  // createOrder always looks up admins to notify them of the new order -
+  // isolate that lookup from the real User model/DB for every test in
+  // this file, regardless of whether the test cares about admins.
+  User.find.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    }),
+  });
 });
 
 test('creating an order notifies the customer and every unique seller involved', async () => {

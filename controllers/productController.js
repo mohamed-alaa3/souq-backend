@@ -1,6 +1,10 @@
+const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/ApiError");
+
+const isValidObjectId = (value) =>
+  typeof value === "string" && mongoose.Types.ObjectId.isValid(value);
 
 // @desc    Get products with search/filter/sort/pagination
 // @route   GET /api/products?category=&search=&minPrice=&maxPrice=&sort=&page=&limit=
@@ -22,7 +26,15 @@ const getProducts = asyncHandler(async (req, res) => {
 
   const query = { isActive: true };
 
-  if (category) {
+  // Category is only ever used as an equality match, so even if the
+  // catch-all sanitizer above didn't already exist, an object/operator
+  // here could not turn into an unintended query shape beyond this field.
+  // Non-string values are rejected outright since they can only be the
+  // result of query-parameter object injection (e.g. category[foo]=bar).
+  if (category !== undefined) {
+    if (typeof category !== "string") {
+      throw new ApiError(400, "Invalid category id");
+    }
     query.category = category;
   }
 
@@ -30,11 +42,19 @@ const getProducts = asyncHandler(async (req, res) => {
     query.price = {};
 
     if (minPrice) {
-      query.price.$gte = Number(minPrice);
+      const parsedMin = Number(minPrice);
+      if (!Number.isFinite(parsedMin) || parsedMin < 0) {
+        throw new ApiError(400, "minPrice must be a non-negative number");
+      }
+      query.price.$gte = parsedMin;
     }
 
     if (maxPrice) {
-      query.price.$lte = Number(maxPrice);
+      const parsedMax = Number(maxPrice);
+      if (!Number.isFinite(parsedMax) || parsedMax < 0) {
+        throw new ApiError(400, "maxPrice must be a non-negative number");
+      }
+      query.price.$lte = parsedMax;
     }
   }
 
@@ -55,11 +75,18 @@ const getProducts = asyncHandler(async (req, res) => {
   // Only meaningful once products have reviews - safe no-op otherwise
   // since ratingsAverage defaults to 0 on every product.
   if (minRating) {
-    query.ratingsAverage = { $gte: Number(minRating) };
+    const parsedRating = Number(minRating);
+    if (!Number.isFinite(parsedRating) || parsedRating < 0 || parsedRating > 5) {
+      throw new ApiError(400, "minRating must be a number between 0 and 5");
+    }
+    query.ratingsAverage = { $gte: parsedRating };
   }
 
   if (search) {
-    query.$text = { $search: search };
+    if (typeof search !== "string") {
+      throw new ApiError(400, "search must be a string");
+    }
+    query.$text = { $search: search.slice(0, 200) };
   }
 
   const sortMap = {
@@ -183,19 +210,59 @@ const createProduct = asyncHandler(async (req, res) => {
     );
   }
 
+  if (!isValidObjectId(category)) {
+    throw new ApiError(400, "Invalid category id");
+  }
+
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+    throw new ApiError(400, "price must be a non-negative number");
+  }
+
+  if (discountPercentage !== undefined && discountPercentage !== "") {
+    const numericDiscount = Number(discountPercentage);
+    if (
+      !Number.isFinite(numericDiscount) ||
+      numericDiscount < 0 ||
+      numericDiscount > 100
+    ) {
+      throw new ApiError(
+        400,
+        "discountPercentage must be a number between 0 and 100",
+      );
+    }
+  }
+
+  if (stock !== undefined && stock !== "") {
+    const numericStock = Number(stock);
+    if (!Number.isFinite(numericStock) || numericStock < 0) {
+      throw new ApiError(400, "stock must be a non-negative number");
+    }
+  }
+
   // Normalize variants.
   let normalizedVariants = [];
 
   if (Array.isArray(variants)) {
-    normalizedVariants = variants.map((variant) => ({
-      size: variant.size ? String(variant.size).trim() : undefined,
-      color: variant.color ? String(variant.color).trim() : undefined,
-      sku: variant.sku ? String(variant.sku).trim().toUpperCase() : undefined,
-      stock:
+    normalizedVariants = variants.map((variant) => {
+      const variantStock =
         variant.stock === undefined || variant.stock === ""
           ? 0
-          : Number(variant.stock),
-    }));
+          : Number(variant.stock);
+
+      if (!Number.isFinite(variantStock) || variantStock < 0) {
+        throw new ApiError(400, "Variant stock must be a non-negative number");
+      }
+
+      return {
+        size: variant.size ? String(variant.size).trim() : undefined,
+        color: variant.color ? String(variant.color).trim() : undefined,
+        sku: variant.sku
+          ? String(variant.sku).trim().toUpperCase()
+          : undefined,
+        stock: variantStock,
+      };
+    });
   }
 
   // Images uploaded as files through Cloudinary
@@ -275,38 +342,68 @@ const updateProduct = asyncHandler(async (req, res) => {
   }
 
   if (price !== undefined) {
-    product.price = price;
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      throw new ApiError(400, "price must be a non-negative number");
+    }
+    product.price = numericPrice;
   }
 
   if (discountPercentage !== undefined && discountPercentage !== "") {
-    product.discountPercentage = Number(discountPercentage);
+    const numericDiscount = Number(discountPercentage);
+    if (
+      !Number.isFinite(numericDiscount) ||
+      numericDiscount < 0 ||
+      numericDiscount > 100
+    ) {
+      throw new ApiError(
+        400,
+        "discountPercentage must be a number between 0 and 100",
+      );
+    }
+    product.discountPercentage = numericDiscount;
   }
 
   if (stock !== undefined) {
-    product.stock = Number(stock);
+    const numericStock = Number(stock);
+    if (!Number.isFinite(numericStock) || numericStock < 0) {
+      throw new ApiError(400, "stock must be a non-negative number");
+    }
+    product.stock = numericStock;
   }
 
   if (category !== undefined) {
+    if (!isValidObjectId(category)) {
+      throw new ApiError(400, "Invalid category id");
+    }
     product.category = category;
   }
 
   if (isActive !== undefined) {
-    product.isActive = isActive;
+    product.isActive = Boolean(isActive);
   }
 
   // Update variants when provided.
   if (Array.isArray(variants)) {
-    product.variants = variants.map((variant) => ({
-      size: variant.size ? String(variant.size).trim() : undefined,
-      color: variant.color ? String(variant.color).trim() : undefined,
-      sku: variant.sku
-        ? String(variant.sku).trim().toUpperCase()
-        : undefined,
-      stock:
+    product.variants = variants.map((variant) => {
+      const variantStock =
         variant.stock === undefined || variant.stock === ""
           ? 0
-          : Number(variant.stock),
-    }));
+          : Number(variant.stock);
+
+      if (!Number.isFinite(variantStock) || variantStock < 0) {
+        throw new ApiError(400, "Variant stock must be a non-negative number");
+      }
+
+      return {
+        size: variant.size ? String(variant.size).trim() : undefined,
+        color: variant.color ? String(variant.color).trim() : undefined,
+        sku: variant.sku
+          ? String(variant.sku).trim().toUpperCase()
+          : undefined,
+        stock: variantStock,
+      };
+    });
   }
 
   // Uploaded images through Cloudinary

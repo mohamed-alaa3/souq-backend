@@ -15,22 +15,25 @@ const {
 } = require('../controllers/authController');
 
 const protect = require('../middlewares/protect');
+const { authLimiter } = require('../middlewares/rateLimiters');
 
 const router = express.Router();
 
 // =========================================================
 // AUTH
 // =========================================================
+// Registration, login, and OTP/reset endpoints are all brute-force /
+// enumeration targets, so they share a strict rate limiter.
 
-router.post('/register', register);
+router.post('/register', authLimiter, register);
 
-router.post('/verify-email', verifyEmail);
+router.post('/verify-email', authLimiter, verifyEmail);
 
-router.post('/resend-verification', resendVerification);
+router.post('/resend-verification', authLimiter, resendVerification);
 
-router.post('/login', login);
+router.post('/login', authLimiter, login);
 
-router.post('/google', googleLogin);
+router.post('/google', authLimiter, googleLogin);
 
 // =========================================================
 // CURRENT USER
@@ -44,10 +47,10 @@ router.patch('/me', protect, updateMe);
 // PASSWORD RESET
 // =========================================================
 
-router.post('/forgot-password', forgotPassword);
+router.post('/forgot-password', authLimiter, forgotPassword);
 
-router.post('/verify-reset-otp', verifyResetOtp);
+router.post('/verify-reset-otp', authLimiter, verifyResetOtp);
 
-router.post('/reset-password', resetPassword);
+router.post('/reset-password', authLimiter, resetPassword);
 
 module.exports = router;

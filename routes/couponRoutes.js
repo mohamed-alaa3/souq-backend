@@ -12,13 +12,14 @@ const {
 
 const protect = require("../middlewares/protect");
 const authorize = require("../middlewares/authorize");
+const { moderateLimiter } = require("../middlewares/rateLimiters");
 
 const router = express.Router();
 
 router.use(protect);
 
 // Any authenticated customer can check a code against their cart at checkout.
-router.post("/validate", validateCoupon);
+router.post("/validate", moderateLimiter, validateCoupon);
 
 // Everything else is admin-only coupon management.
 router.get("/", authorize("admin"), getCoupons);
