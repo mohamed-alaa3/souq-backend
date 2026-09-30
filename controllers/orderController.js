@@ -371,6 +371,15 @@ const getAllOrders = asyncHandler(async (req, res) => {
     .populate("user", "name email")
     .sort("-createdAt");
 
+  orders.forEach((order) => {
+    console.log({
+      orderId: order._id.toString(),
+      userId: order.user?._id?.toString() ?? null,
+      userName: order.user?.name ?? null,
+      userEmail: order.user?.email ?? null,
+    });
+  });
+
   res.status(200).json({
     success: true,
     data: orders,
