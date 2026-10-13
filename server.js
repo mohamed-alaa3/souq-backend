@@ -53,7 +53,7 @@ const corsOptions = {
 // =========================================================
 // COMPRESSION
 // =========================================================
-const compression = require("compression");
+
 app.use(compression());
 // =========================================================
 // SECURITY / CORE MIDDLEWARE
