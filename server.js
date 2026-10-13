@@ -20,6 +20,7 @@ const wishlistRoutes = require("./routes/wishlistRoutes");
 const couponRoutes = require("./routes/couponRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const compression = require("compression");
 
 const app = express();
 
@@ -49,7 +50,11 @@ const corsOptions = {
   },
   credentials: true,
 };
-
+// =========================================================
+// COMPRESSION
+// =========================================================
+const compression = require("compression");
+app.use(compression());
 // =========================================================
 // SECURITY / CORE MIDDLEWARE
 // =========================================================
